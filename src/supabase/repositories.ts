@@ -10,11 +10,21 @@ export async function upsertSession(values: Record<string, unknown>) {
   if (error) throw error;
 }
 
-export async function findOrCreateLead(phone: string, name?: string, pushName?: string) {
+export async function findOrCreateLead(phone: string, name?: string, pushName?: string, avatarUrl?: string | null) {
   const { data, error } = await supabase.from('leads').select('id').eq('owner_id', owner).eq('phone_e164', phone).maybeSingle();
   if (error) throw error;
-  if (data) return data.id as string;
-  const inserted = await supabase.from('leads').insert({ owner_id: owner, phone_e164: phone, name, push_name: pushName }).select('id').single();
+  if (data) {
+    if (name || pushName || avatarUrl) {
+      const { error: updateError } = await supabase.from('leads').update({
+        ...(name ? { name } : {}),
+        ...(pushName ? { push_name: pushName } : {}),
+        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
+      }).eq('id', data.id);
+      if (updateError) throw updateError;
+    }
+    return data.id as string;
+  }
+  const inserted = await supabase.from('leads').insert({ owner_id: owner, phone_e164: phone, name, push_name: pushName, avatar_url: avatarUrl }).select('id').single();
   if (inserted.error && inserted.error.code !== '23505') throw inserted.error;
   if (inserted.data) return inserted.data.id as string;
   const retry = await supabase.from('leads').select('id').eq('owner_id', owner).eq('phone_e164', phone).single();

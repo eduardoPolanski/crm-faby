@@ -12,7 +12,8 @@ export async function processInbound(messages: WAMessage[]) {
     try {
       const key = message.key;
       if (!key.id || key.fromMe || !key.remoteJid || key.remoteJid.endsWith('@g.us')) continue;
-      const remoteJid = jidNormalizedUser(key.remoteJid);
+      const keyWithAliases = key as typeof key & { remoteJidAlt?: string };
+      const remoteJid = jidNormalizedUser(keyWithAliases.remoteJidAlt ?? key.senderPn ?? key.remoteJid);
       const text = message.message?.conversation ?? message.message?.extendedTextMessage?.text ?? undefined;
       const pushName = message.pushName ?? undefined;
       const type = text ? 'text' : 'unknown';
@@ -37,7 +38,8 @@ export async function processContacts(contacts: Partial<Contact>[]) {
       if (!contact.id || !contact.id.endsWith('@s.whatsapp.net')) continue;
       const phone = phoneFromJid(jidNormalizedUser(contact.id));
       if (!phone) continue;
-      const leadId = await findOrCreateLead(phone, contact.name ?? undefined, contact.notify ?? contact.verifiedName ?? undefined);
+      const avatarUrl = (contact as { imgUrl?: string | null }).imgUrl;
+      const leadId = await findOrCreateLead(phone, contact.name ?? undefined, contact.notify ?? contact.verifiedName ?? undefined, avatarUrl);
       await findOrCreateConversation(leadId, jidNormalizedUser(contact.id));
     } catch (error) {
       logger.error({ err: error, contactId: contact.id }, 'failed to process contact');
