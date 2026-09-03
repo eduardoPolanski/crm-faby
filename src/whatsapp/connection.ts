@@ -9,6 +9,7 @@ import { recoverOutbound } from '../processors/outbound.js';
 export class WhatsAppConnection {
   private socket?: WASocket;
   private reconnecting = false;
+  private refreshingQr = false;
   async start(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(env.WHATSAPP_AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
@@ -18,6 +19,18 @@ export class WhatsAppConnection {
     this.socket.ev.on('messages.upsert', (event) => void processInbound(event.messages));
     this.socket.ev.on('messages.update', (updates) => void this.handleMessageUpdates(updates));
     await recoverOutbound(() => this.socket);
+  }
+
+  async refreshQr(): Promise<void> {
+    if (this.isConnected || this.refreshingQr) return;
+    this.refreshingQr = true;
+    logger.info('refreshing whatsapp qr');
+    this.socket?.end(new Error('QR refresh requested'));
+    this.socket = undefined;
+    setTimeout(() => {
+      this.refreshingQr = false;
+      void this.start().catch((error) => logger.error({ err: error }, 'qr refresh failed'));
+    }, 500);
   }
 
   private async handleMessageUpdates(updates: Array<{ key: { id?: string | null }; update?: { status?: proto.WebMessageInfo.Status | null } }>) {
@@ -51,6 +64,7 @@ export class WhatsAppConnection {
       await upsertSession({ status: 'connected', qr_code: null, pairing_code: null, connected_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), last_error: null, phone_e164: jid ? '+' + jid.split(':')[0].split('@')[0] : null, whatsapp_jid: jid });
       logger.info('whatsapp connected');
       await recoverOutbound(() => this.socket);
+      this.refreshingQr = false;
     }
     if (update.connection === 'close') {
       const statusCode = (update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
