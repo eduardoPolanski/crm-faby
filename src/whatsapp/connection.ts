@@ -39,6 +39,15 @@ export class WhatsAppConnection {
     if (update.connection === 'open') {
       this.reconnecting = false;
       const jid = this.socket?.user?.id;
+      if (!jid) {
+        await upsertSession({
+          status: 'qr_required',
+          last_seen_at: new Date().toISOString(),
+          last_error: null,
+        });
+        logger.warn('whatsapp transport opened before authentication');
+        return;
+      }
       await upsertSession({ status: 'connected', qr_code: null, pairing_code: null, connected_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), last_error: null, phone_e164: jid ? '+' + jid.split(':')[0].split('@')[0] : null, whatsapp_jid: jid });
       logger.info('whatsapp connected');
       await recoverOutbound(() => this.socket);
