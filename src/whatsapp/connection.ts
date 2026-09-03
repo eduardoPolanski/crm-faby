@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { env } from '../config/env.js';
 import { logger } from '../logger.js';
 import { updateMessageStatus, upsertSession } from '../supabase/repositories.js';
-import { processInbound } from '../processors/inbound.js';
+import { processContacts, processInbound } from '../processors/inbound.js';
 import { recoverOutbound } from '../processors/outbound.js';
 
 export class WhatsAppConnection {
@@ -17,6 +17,8 @@ export class WhatsAppConnection {
     this.socket.ev.on('creds.update', saveCreds);
     this.socket.ev.on('connection.update', (update) => void this.handleConnection(update));
     this.socket.ev.on('messages.upsert', (event) => void processInbound(event.messages));
+    this.socket.ev.on('contacts.upsert', (contacts) => void processContacts(contacts));
+    this.socket.ev.on('contacts.update', (contacts) => void processContacts(contacts));
     this.socket.ev.on('messages.update', (updates) => void this.handleMessageUpdates(updates));
     await recoverOutbound(() => this.socket);
   }

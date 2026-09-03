@@ -1,4 +1,4 @@
-import { jidNormalizedUser, type WAMessage } from '@whiskeysockets/baileys';
+import { jidNormalizedUser, type Contact, type WAMessage } from '@whiskeysockets/baileys';
 import { logger } from '../logger.js';
 import { findOrCreateConversation, findOrCreateLead, insertInboundMessage } from '../supabase/repositories.js';
 
@@ -29,4 +29,19 @@ export async function processInbound(messages: WAMessage[]) {
       logger.error({ err: error }, 'failed to process inbound message');
     }
   }
+}
+
+export async function processContacts(contacts: Partial<Contact>[]) {
+  for (const contact of contacts) {
+    try {
+      if (!contact.id || !contact.id.endsWith('@s.whatsapp.net')) continue;
+      const phone = phoneFromJid(jidNormalizedUser(contact.id));
+      if (!phone) continue;
+      const leadId = await findOrCreateLead(phone, contact.name ?? undefined, contact.notify ?? contact.verifiedName ?? undefined);
+      await findOrCreateConversation(leadId, jidNormalizedUser(contact.id));
+    } catch (error) {
+      logger.error({ err: error, contactId: contact.id }, 'failed to process contact');
+    }
+  }
+  logger.info({ count: contacts.length }, 'whatsapp contacts processed');
 }
