@@ -13,7 +13,9 @@ export class WhatsAppConnection {
   async start(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(env.WHATSAPP_AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
-    const socket = makeWASocket({ version, auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) }, browser: Browsers.macOS('Desktop'), generateHighQualityLinkPreview: false, markOnlineOnConnect: false, syncFullHistory: true, logger });
+    // WEB_BROWSER avoids the current WhatsApp pairing failure observed with the
+    // DARWIN/WIN32 desktop sub-platform while still requesting full history.
+    const socket = makeWASocket({ version, auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) }, browser: Browsers.ubuntu('Chrome'), generateHighQualityLinkPreview: false, markOnlineOnConnect: false, syncFullHistory: true, logger });
     this.socket = socket;
     socket.ev.on('creds.update', saveCreds);
     socket.ev.on('connection.update', (update) => void this.handleConnection(update));
