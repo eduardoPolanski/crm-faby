@@ -26,4 +26,10 @@ Para manter o processo ativo após fechar o SSH, use um supervisor como systemd 
 
 O frontend cria uma linha em outbound_messages com owner_id, conversation_id, destination_jid, message_type = text e text_content. O worker recebe o INSERT via Realtime e também recupera mensagens pending ao iniciar.
 
-Mensagens de texto são suportadas diretamente. Outros tipos devem ser adaptados em src/processors/outbound.ts; mídia não é baixada nem armazenada nesta primeira versão.
+O conector sincroniza o histórico disponível no WhatsApp ao vincular a conta, inclusive mensagens enviadas pelo celular. Imagens, áudios, vídeos e documentos são copiados para o bucket privado `whatsapp-media`; aplique todas as migrations antes de iniciar o worker. A disponibilidade do histórico depende do que o WhatsApp disponibiliza para dispositivos vinculados — mensagens anteriores que não sejam entregues na primeira sincronização não podem ser recuperadas pela API.
+
+## Operação
+
+- O worker deve ficar ativo continuamente (Docker, systemd ou PM2). A fila recupera envios pendentes após reconexão e reprocessa itens que ficaram travados por mais de cinco minutos.
+- Para conferir o estado em uma VPS com Docker: `docker compose ps` e `docker compose logs --tail=200 baileys`.
+- Depois de atualizar o código, reconstrua e reinicie o worker: `docker compose up -d --build`.

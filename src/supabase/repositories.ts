@@ -44,25 +44,44 @@ export async function findOrCreateConversation(leadId: string, remoteJid: string
   return retry.data.id as string;
 }
 
-export async function insertInboundMessage(input: {
-  whatsappMessageId: string; remoteJid: string; conversationId: string; sender: string;
-  text?: string; type: string; payload: unknown; createdAt: Date;
+export async function insertWhatsAppMessage(input: {
+  whatsappMessageId: string; remoteJid: string; conversationId: string; direction: 'inbound' | 'outbound'; phone: string;
+  text?: string; type: string; mimeType?: string; mediaUrl?: string; payload: unknown; createdAt: Date;
 }) {
   const { error } = await supabase.from('messages').insert({
     owner_id: owner, conversation_id: input.conversationId, whatsapp_message_id: input.whatsappMessageId,
-    remote_jid: input.remoteJid, direction: 'inbound', message_type: input.type,
-    status: 'received', sender_phone_e164: input.sender, text_content: input.text,
+    remote_jid: input.remoteJid, direction: input.direction, message_type: input.type,
+    status: input.direction === 'inbound' ? 'received' : 'sent',
+    ...(input.direction === 'inbound' ? { sender_phone_e164: input.phone } : { recipient_phone_e164: input.phone, sent_at: input.createdAt.toISOString() }),
+    text_content: input.text, media_url: input.mediaUrl, media_mime_type: input.mimeType,
     raw_payload: input.payload, created_at: input.createdAt.toISOString(),
   });
   if (error && error.code !== '23505') throw error;
   return !error;
 }
 
+export async function insertMessageMedia(messageId: string, data: Buffer, contentType: string, extension: string) {
+  const path = `${owner}/${messageId}.${extension}`;
+  const { error } = await supabase.storage.from('whatsapp-media').upload(path, data, { contentType, upsert: false });
+  if (error && !/already exists/i.test(error.message)) throw error;
+  return path;
+}
+
 export async function recoverPendingOutbound() {
+  const staleBefore = new Date(Date.now() - 5 * 60_000).toISOString();
+  const stale = await supabase.from('outbound_messages').update({ status: 'pending', processing_started_at: null })
+    .eq('owner_id', owner).eq('status', 'processing').lt('processing_started_at', staleBefore);
+  if (stale.error) throw stale.error;
   const { data, error } = await supabase.from('outbound_messages').select('*').eq('owner_id', owner)
     .eq('status', 'pending').lte('available_at', new Date().toISOString()).order('created_at', { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+export async function downloadOutboundMedia(path: string) {
+  const { data, error } = await supabase.storage.from('whatsapp-media').download(path);
+  if (error) throw error;
+  return Buffer.from(await data.arrayBuffer());
 }
 
 export async function claimOutbound(id: string) {
@@ -93,13 +112,14 @@ export async function updateMessageStatus(whatsappMessageId: string, status: 'se
 
 export async function createOutboundMessageRecord(input: {
   outboundId: string; conversationId: string; destinationJid: string; type: string;
-  text?: string; whatsappMessageId: string;
+  text?: string; mediaUrl?: string | null; mediaMimeType?: string | null; whatsappMessageId: string;
 }) {
   const result = await supabase.from('messages').insert({
     owner_id: owner, conversation_id: input.conversationId, whatsapp_message_id: input.whatsappMessageId,
     remote_jid: input.destinationJid, direction: 'outbound', message_type: input.type,
     status: 'sent', recipient_phone_e164: '+' + input.destinationJid.split('@')[0],
-    text_content: input.text, sent_at: new Date().toISOString(), raw_payload: {},
+    text_content: input.text, media_url: input.mediaUrl, media_mime_type: input.mediaMimeType,
+    sent_at: new Date().toISOString(), raw_payload: {},
   }).select('id').single();
   if (result.error && result.error.code !== '23505') throw result.error;
   await updateOutbound(input.outboundId, {

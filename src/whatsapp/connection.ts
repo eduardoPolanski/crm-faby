@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { env } from '../config/env.js';
 import { logger } from '../logger.js';
 import { updateMessageStatus, upsertSession } from '../supabase/repositories.js';
-import { processContacts, processInbound } from '../processors/inbound.js';
+import { processContacts, processMessages } from '../processors/inbound.js';
 import { recoverOutbound } from '../processors/outbound.js';
 
 export class WhatsAppConnection {
@@ -13,13 +13,19 @@ export class WhatsAppConnection {
   async start(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(env.WHATSAPP_AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
-    this.socket = makeWASocket({ version, auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) }, browser: Browsers.ubuntu('Chrome'), generateHighQualityLinkPreview: false, markOnlineOnConnect: false, syncFullHistory: false, logger });
-    this.socket.ev.on('creds.update', saveCreds);
-    this.socket.ev.on('connection.update', (update) => void this.handleConnection(update));
-    this.socket.ev.on('messages.upsert', (event) => void processInbound(event.messages));
-    this.socket.ev.on('contacts.upsert', (contacts) => void processContacts(contacts));
-    this.socket.ev.on('contacts.update', (contacts) => void processContacts(contacts));
-    this.socket.ev.on('messages.update', (updates) => void this.handleMessageUpdates(updates));
+    const socket = makeWASocket({ version, auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) }, browser: Browsers.macOS('Desktop'), generateHighQualityLinkPreview: false, markOnlineOnConnect: false, syncFullHistory: true, logger });
+    this.socket = socket;
+    socket.ev.on('creds.update', saveCreds);
+    socket.ev.on('connection.update', (update) => void this.handleConnection(update));
+    socket.ev.on('messages.upsert', (event) => void processMessages(event.messages, socket));
+    socket.ev.on('messaging-history.set', (history) => {
+      logger.info({ messages: history.messages.length, contacts: history.contacts.length, progress: history.progress, isLatest: history.isLatest }, 'whatsapp history sync received');
+      void processContacts(history.contacts, socket);
+      void processMessages(history.messages, socket);
+    });
+    socket.ev.on('contacts.upsert', (contacts) => void processContacts(contacts, socket));
+    socket.ev.on('contacts.update', (contacts) => void processContacts(contacts, socket));
+    socket.ev.on('messages.update', (updates) => void this.handleMessageUpdates(updates));
     await recoverOutbound(() => this.socket);
   }
 
