@@ -58,7 +58,10 @@ export class WhatsAppConnection {
     }
   }
   private async handleConnection(update: { connection?: 'open' | 'close' | 'connecting'; qr?: string; lastDisconnect?: { error?: unknown } }) {
-    if (update.qr) await upsertSession({ status: 'qr_required', qr_code: await QRCode.toDataURL(update.qr), last_seen_at: new Date().toISOString(), last_error: null });
+    if (update.qr) {
+      await upsertSession({ status: 'qr_required', qr_code: await QRCode.toDataURL(update.qr), last_seen_at: new Date().toISOString(), last_error: null });
+      logger.info('whatsapp QR generated; scan it in the CRM');
+    }
     if (update.connection === 'open') {
       this.reconnecting = false;
       const jid = this.socket?.user?.id;
